@@ -1,7 +1,11 @@
+#include <time.h>
 #include <iostream>
 #include <limits>
 #include <string.h>
 #define N_L 10000000
+#define N_FILENAME 1000
+#define N_TYPE 10
+#define CALC_HOURS(nanosec) ((nanosec/1000000000/3600)%24)
 
 inline unsigned long long timestamp_nanosec(char *str) {
     struct tm time;
@@ -18,14 +22,23 @@ inline unsigned long long timestamp_nanosec(char *str) {
     return nanosec;
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, const char *argv[]) {
+    const char* exchange = argv[1];
+
     /* start reading */
+    // buffer for storing type
+    char* type = (char*) malloc(sizeof(char)*N_TYPE);
+    memset(type, 0, N_TYPE);
     // buffer for storing an line
-    char* buf = (char*) std::malloc(sizeof(char)*N_L);
+    char* buf = (char*) malloc(sizeof(char)*N_L);
     // initialize buffer
     memset(buf, 0, N_L);
+    // char array to store command to write to
+    char* comm = (char*) malloc(sizeof(char)*N_FILENAME);
+    memset(comm, 0, N_FILENAME);
 
     unsigned long long line_timestamp;
+    unsigned int last_hours;
     
     // read head
     // constant "head"
@@ -35,6 +48,7 @@ int main(int argc, char *argv[]) {
     // datetime
     std::cin.getline(buf, N_L, ',');
     line_timestamp = timestamp_nanosec(buf);
+    last_hours = CALC_HOURS(line_timestamp);
     // constant websocket
     std::cin.getline(buf, N_L, ',');
     // constant "0"
@@ -42,35 +56,49 @@ int main(int argc, char *argv[]) {
     // url
     std::cin.getline(buf, N_L);
 
-    std::cout << "start\t" << line_timestamp << '\t' << buf << std::endl;
+    // make out filename
+    snprintf(comm, N_FILENAME, "pigz -9 > converted/%s_%llu.gzip", exchange, line_timestamp);
+    // open pipe to output to
+    FILE* out = popen(comm, "w");
 
+    fprintf(out, "start\t%llu\t", line_timestamp);
+    fputs(buf, out);
+    fputc('\n', out);
 
-    while (std::cin.getline(buf, N_L, ',')) {
-        if (buf[0] == 'm' && buf[1] == 's' && buf[2] == 'g') {
-            // read timestamp
-            std::cin.getline(buf, N_L, ',');
-            line_timestamp = timestamp_nanosec(buf);
+    while (std::cin.getline(type, N_TYPE, ',')) {
+        // read timestamp
+        std::cin.getline(buf, N_L, ',');
+        line_timestamp = timestamp_nanosec(buf);
 
+        // if hours is different, then new file
+        if (CALC_HOURS(line_timestamp) != last_hours) {
+            pclose(out);
+            
+            snprintf(comm, N_FILENAME, "pigz -9 > converted/%s_%llu.gzip", exchange, line_timestamp);
+            out = popen(comm, "w");
+
+            last_hours = CALC_HOURS(line_timestamp);
+        }
+
+        if (type[0] == 'm' && type[1] == 's' && type[2] == 'g') {
             // rest of the line is a msg
             std::cin.getline(buf, N_L);
 
             // v2
-            std::cout << "msg\t" << line_timestamp << '\t' << buf << std::endl;
+            fprintf(out, "msg\t%llu\t", line_timestamp);
+            fputs(buf, out);
+            fputc('\n', out);
 
-        } else if (buf[0] == 'e' && buf[1] == 'm' && buf[2] == 'i' && buf[3] == 't') {
-            std::cin.getline(buf, N_L, ',');
-            line_timestamp = timestamp_nanosec(buf);
-
+        } else if (type[0] == 'e' && type[1] == 'm' && type[2] == 'i' && type[3] == 't') {
             std::cin.getline(buf, N_L);
             
             // v2
-            std::cout << "send\t" << line_timestamp << '\t' << buf << std::endl;
+            fprintf(out, "send\t%llu\t", line_timestamp);
+            fputs(buf, out);
+            fputc('\n', out);
 
-        } else if (buf[0] == 'e' && buf[1] == 'o' && buf[2] == 's') {
-            std::cin.getline(buf, N_L, ',');
-            line_timestamp = timestamp_nanosec(buf);
-
-            std::cout << "end\t" << line_timestamp << std::endl;
+        } else if (type[0] == 'e' && type[1] == 'o' && type[2] == 's') {
+            fprintf(out, "end\t%llu\n", line_timestamp);
 
             // end of stream, ignore lest
             std::cin.ignore(std::numeric_limits<std::streamsize>::max());
@@ -79,6 +107,8 @@ int main(int argc, char *argv[]) {
             std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
         }
     }
+
+    pclose(out);
 
     return 0;
 }
