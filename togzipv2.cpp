@@ -2,10 +2,10 @@
 #include <iostream>
 #include <limits>
 #include <string.h>
-#define N_L 10000000
-#define N_FILENAME 1000
-#define N_TYPE 10
-#define CALC_HOURS(nanosec) ((nanosec/1000000000/3600)%24)
+#include <string>
+#define N_BUFFER 10000000
+#define N_COMMAND 1000
+#define N_TIMESTAMP 100
 
 inline unsigned long long timestamp_nanosec(char *str) {
     struct tm time;
@@ -22,83 +22,97 @@ inline unsigned long long timestamp_nanosec(char *str) {
     return nanosec;
 }
 
+inline void standardize_time(char *str) {
+    unsigned long long nanosec;
+
+    *(str+strlen("2020-01-01")) = 'T';
+    nanosec = atol(str+strlen("2020-01-01 19:12:03.")) * 1000;
+    snprintf(str+strlen("2020-01-01 19:12:03."), 20, "%09llu", nanosec);
+    *(str+strlen("2020-01-01 19:12:03.000000000")) = 'Z';
+    *(str+strlen("2020-01-01 19:12:03.000000000Z")) = '\0';
+}
+
 int main(int argc, const char *argv[]) {
     const char* exchange = argv[1];
 
     /* start reading */
-    // buffer for storing type
-    char* type = (char*) malloc(sizeof(char)*N_TYPE);
-    memset(type, 0, N_TYPE);
+    // buffer for storing an datetime
+    char* timestamp = (char*) malloc(sizeof(char)*N_TIMESTAMP);
     // buffer for storing an line
-    char* buf = (char*) malloc(sizeof(char)*N_L);
-    // initialize buffer
-    memset(buf, 0, N_L);
+    char* buf = (char*) malloc(sizeof(char)*N_BUFFER);
     // char array to store command to write to
-    char* comm = (char*) malloc(sizeof(char)*N_FILENAME);
-    memset(comm, 0, N_FILENAME);
+    char* command = (char*) malloc(sizeof(char)*N_COMMAND);
 
-    unsigned long long line_timestamp;
-    unsigned int last_hours;
+    // last digit of hour
+    char last_hours;
     
     // read head
     // constant "head"
-    std::cin.getline(buf, N_L, ',');
+    std::cin.getline(buf, N_BUFFER, ',');
     // constant "0"
-    std::cin.getline(buf, N_L, ',');
+    std::cin.getline(buf, N_BUFFER, ',');
     // datetime
-    std::cin.getline(buf, N_L, ',');
-    line_timestamp = timestamp_nanosec(buf);
-    last_hours = CALC_HOURS(line_timestamp);
-    // constant websocket
-    std::cin.getline(buf, N_L, ',');
-    // constant "0"
-    std::cin.getline(buf, N_L, ',');
-    // url
-    std::cin.getline(buf, N_L);
+    std::cin.getline(timestamp, N_TIMESTAMP, ',');
+    last_hours = *(timestamp+strlen("2020-01-01 1"));
 
     // make out filename
-    snprintf(comm, N_FILENAME, "pigz -9 > converted/%s_%llu.gzip", exchange, line_timestamp);
+    snprintf(command, N_COMMAND, "pigz -9 > converted/%s_%llu.gzip", exchange, timestamp_nanosec(timestamp));
     // open pipe to output to
-    FILE* out = popen(comm, "w");
+    FILE* out = popen(command, "w");
 
-    fprintf(out, "start\t%llu\t", line_timestamp);
-    fputs(buf, out);
-    fputc('\n', out);
+    // standardize time
+    standardize_time(timestamp);
+    // constant websocket
+    std::cin.getline(buf, N_BUFFER, ',');
+    // constant "0"
+    std::cin.getline(buf, N_BUFFER, ',');
+    // url
+    std::cin.getline(buf, N_BUFFER);
 
-    while (std::cin.getline(type, N_TYPE, ',')) {
+    fprintf(out, "{\"type\":\"start\",\"timestamp\":\"%s\"\"data\":\"%s\"}\n", timestamp, buf);
+
+    while (std::cin.getline(buf, N_BUFFER, ',')) {
         // read timestamp
-        std::cin.getline(buf, N_L, ',');
-        line_timestamp = timestamp_nanosec(buf);
+        std::cin.getline(timestamp, N_TIMESTAMP, ',');
 
         // if hours is different, then new file
-        if (CALC_HOURS(line_timestamp) != last_hours) {
+        if (*(timestamp+strlen("2020-01-01T1")) != last_hours) {
             pclose(out);
             
-            snprintf(comm, N_FILENAME, "pigz -9 > converted/%s_%llu.gzip", exchange, line_timestamp);
-            out = popen(comm, "w");
+            snprintf(command, N_COMMAND, "pigz -9 > converted/%s_%llu.gzip", exchange, timestamp_nanosec(timestamp));
+            out = popen(command, "w");
 
-            last_hours = CALC_HOURS(line_timestamp);
+            last_hours = *(timestamp+strlen("2020-01-01T1"));
         }
 
-        if (type[0] == 'm' && type[1] == 's' && type[2] == 'g') {
+        // standardize
+        standardize_time(timestamp);
+
+        if (buf[0] == 'm' && buf[1] == 's' && buf[2] == 'g') {
             // rest of the line is a msg
-            std::cin.getline(buf, N_L);
+            std::cin.getline(buf, N_BUFFER);
 
             // v2
-            fprintf(out, "msg\t%llu\t", line_timestamp);
+            fputs("{\"type\":\"msg\",\"timestamp\":\"", out);
+            fputs(timestamp, out);
+            fputs("\",\"data\":", out);
             fputs(buf, out);
-            fputc('\n', out);
+            fputs("}\n", out);
 
-        } else if (type[0] == 'e' && type[1] == 'm' && type[2] == 'i' && type[3] == 't') {
-            std::cin.getline(buf, N_L);
+        } else if (buf[0] == 'e' && buf[1] == 'm' && buf[2] == 'i' && buf[3] == 't') {
+            std::cin.getline(buf, N_BUFFER);
             
             // v2
-            fprintf(out, "send\t%llu\t", line_timestamp);
+            fputs("{\"type\":\"send\",\"timestamp\":\"", out);
+            fputs(timestamp, out);
+            fputs("\",\"data\":", out);
             fputs(buf, out);
-            fputc('\n', out);
+            fputs("}\n", out);
 
-        } else if (type[0] == 'e' && type[1] == 'o' && type[2] == 's') {
-            fprintf(out, "end\t%llu\n", line_timestamp);
+        } else if (buf[0] == 'e' && buf[1] == 'o' && buf[2] == 's') {
+            fputs("{\"type\":\"end\",\"timestamp\":\"", out);
+            fputs(timestamp, out);
+            fputs("\"}\n", out);
 
             // end of stream, ignore lest
             std::cin.ignore(std::numeric_limits<std::streamsize>::max());
@@ -109,6 +123,9 @@ int main(int argc, const char *argv[]) {
     }
 
     pclose(out);
+    free(buf);
+    free(command);
+    free(timestamp);
 
     return 0;
 }
