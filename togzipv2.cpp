@@ -63,9 +63,13 @@ int main(int argc, const char *argv[]) {
 
     fprintf(out, "start\t%llu\t%s\n", ts, buf);
 
+    char c;
+    
     while (std::cin.getline(buf, N_BUFFER, ',')) {
         // read timestamp
-        std::cin.getline(timestamp, N_BUFFER, ',');
+        fread(timestamp, sizeof(char), strlen("2020-01-01 19:12:03.000000,"), stdin);
+        *(timestamp+strlen("2020-01-01 19:12:03.000000")) = '\0';
+
         ts = timestamp_nanosec(timestamp);
 
         // if hours is different, then new file
@@ -80,20 +84,28 @@ int main(int argc, const char *argv[]) {
 
         if (buf[0] == 'm' && buf[1] == 's' && buf[2] == 'g') {
             // rest of the line is a msg
-            std::cin.getline(buf, N_BUFFER);
-
             // v2
             fprintf(out, "msg\t%llu\t", ts);
-            fputs(buf, out);
-            fputc('\n', out);
+            do {
+                c = fgetc(stdin);
+                fputc(c, out);
+            } while (c != '\n');
 
         } else if (buf[0] == 'e' && buf[1] == 'm' && buf[2] == 'i' && buf[3] == 't') {
-            std::cin.getline(buf, N_BUFFER);
-            
             // v2
             fprintf(out, "send\t%llu\t", ts);
-            fputs(buf, out);
-            fputc('\n', out);
+            do {
+                c = fgetc(stdin);
+                fputc(c, out);
+            } while (c != '\n');
+
+        } else if (buf[0] == 'e' && buf[2] == 'r' && buf[2] == 'r') {
+            // v2
+            fprintf(out, "err\t%llu\t", ts);
+            do {
+                c = fgetc(stdin);
+                fputc(c, out);
+            } while (c != '\n');
 
         } else if (buf[0] == 'e' && buf[1] == 'o' && buf[2] == 's') {
             fprintf(out, "end\t%llu\n", ts);
