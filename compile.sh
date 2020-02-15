@@ -1,1 +1,1 @@
-c++ togzipv2.cpp -o togzipv2 -O2
+c++ togzipv2.cpp bitmex.cpp bitflyer.cpp bitfinex.cpp -o togzipv2 -O2

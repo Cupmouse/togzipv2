@@ -3,10 +3,11 @@
 #include <limits>
 #include <string.h>
 #include <string>
-#define N_BUFFER 10000000
-#define N_COMMAND 1000
-#define N_TIMESTAMP 100
-#define CALC_MIN(nanosec) (nanosec/1000000000/60)
+
+#include "common.h"
+#include "bitfinex.h"
+#include "bitflyer.h"
+#include "bitmex.h"
 
 inline unsigned long long timestamp_nanosec(char *str) {
     struct tm time;
@@ -26,7 +27,25 @@ inline unsigned long long timestamp_nanosec(char *str) {
 int main(int argc, const char *argv[]) {
     const char* exchange = argv[1];
 
-    /* start reading */
+    void (*get_channel_send)(char*, char*);
+    void (*get_channel_msg)(char*, char*);
+
+    if (strcmp(exchange, "bitfinex") == 0) {
+        exchange = "bitfinex-private";
+
+        get_channel_send = send_bitfinex;
+        get_channel_msg = msg_bitfinex;
+    } else if (strcmp(exchange, "bitflyer") == 0) {
+        get_channel_send = send_bitflyer;
+        get_channel_msg = msg_bitflyer;
+    } else if (strcmp(exchange, "bitmex") == 0) {
+        get_channel_send = send_bitmex;
+        get_channel_msg = msg_bitmex;
+    } else {
+        std::cerr << "unknown exchange" << std::endl;
+        exit(1);
+    }
+
     // buffer for storing an datetime
     char* timestamp = (char*) malloc(sizeof(char)*N_TIMESTAMP);
     // buffer for storing an line
@@ -50,7 +69,7 @@ int main(int argc, const char *argv[]) {
     mins = CALC_MIN(ts);
 
     // make out filename
-    snprintf(command, N_COMMAND, "pigz -9 > converted/%s_%llu.gzip", exchange, ts);
+    snprintf(command, N_COMMAND, "gzip -9 > converted/%s_%llu.gzip", exchange, ts);
     // open pipe to output to
     FILE* out = popen(command, "w");
 
@@ -63,11 +82,11 @@ int main(int argc, const char *argv[]) {
 
     fprintf(out, "start\t%llu\t%s\n", ts, buf);
 
-    char c;
+    char *channel = (char *) malloc(sizeof(char)*N_CHANNEL);
     
     while (std::cin.getline(buf, N_BUFFER, ',')) {
         // read timestamp
-        fread(timestamp, sizeof(char), strlen("2020-01-01 19:12:03.000000,"), stdin);
+        fgets(timestamp, strlen("2020-01-01 19:12:03.000000,")+1, stdin);
         *(timestamp+strlen("2020-01-01 19:12:03.000000")) = '\0';
 
         ts = timestamp_nanosec(timestamp);
@@ -76,7 +95,7 @@ int main(int argc, const char *argv[]) {
         if (CALC_MIN(ts) != mins) {
             pclose(out);
             
-            snprintf(command, N_COMMAND, "pigz -9 > converted/%s_%llu.gzip", exchange, ts);
+            snprintf(command, N_COMMAND, "gzip -9 > converted/%s_%llu.gzip", exchange, ts);
             out = popen(command, "w");
 
             mins = CALC_MIN(ts);
@@ -84,28 +103,27 @@ int main(int argc, const char *argv[]) {
 
         if (buf[0] == 'm' && buf[1] == 's' && buf[2] == 'g') {
             // rest of the line is a msg
+            std::cin.getline(buf, N_BUFFER);
+            get_channel_msg(buf, channel);
             // v2
-            fprintf(out, "msg\t%llu\t", ts);
-            do {
-                c = fgetc(stdin);
-                fputc(c, out);
-            } while (c != '\n');
+            fprintf(out, "msg\t%llu\t%s\t", ts, channel);
+            fputs(buf, out);
+            fputc('\n', out);
 
         } else if (buf[0] == 'e' && buf[1] == 'm' && buf[2] == 'i' && buf[3] == 't') {
+            std::cin.getline(buf, N_BUFFER);
+            get_channel_send(buf, channel);
             // v2
-            fprintf(out, "send\t%llu\t", ts);
-            do {
-                c = fgetc(stdin);
-                fputc(c, out);
-            } while (c != '\n');
+            fprintf(out, "send\t%llu\t%s\t", ts, channel);
+            fputs(buf, out);
+            fputc('\n', out);
 
         } else if (buf[0] == 'e' && buf[2] == 'r' && buf[2] == 'r') {
+            std::cin.getline(buf, N_BUFFER);
             // v2
             fprintf(out, "err\t%llu\t", ts);
-            do {
-                c = fgetc(stdin);
-                fputc(c, out);
-            } while (c != '\n');
+            fputs(buf, out);
+            fputc('\n', out);
 
         } else if (buf[0] == 'e' && buf[1] == 'o' && buf[2] == 's') {
             fprintf(out, "end\t%llu\n", ts);
