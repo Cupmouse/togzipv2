@@ -69,7 +69,7 @@ int main(int argc, const char *argv[]) {
     mins = CALC_MIN(ts);
 
     // make out filename
-    snprintf(command, N_COMMAND, "gzip -9 > converted/%s_%llu.gzip", exchange, ts);
+    snprintf(command, N_COMMAND, "gzip -9 > converted/%s_%llu.gz", exchange, ts);
     // open pipe to output to
     FILE* out = popen(command, "w");
 
@@ -95,7 +95,7 @@ int main(int argc, const char *argv[]) {
         if (CALC_MIN(ts) != mins) {
             pclose(out);
             
-            snprintf(command, N_COMMAND, "gzip -9 > converted/%s_%llu.gzip", exchange, ts);
+            snprintf(command, N_COMMAND, "gzip -9 > converted/%s_%llu.gz", exchange, ts);
             out = popen(command, "w");
 
             mins = CALC_MIN(ts);
