@@ -29,29 +29,35 @@ int main(int argc, const char *argv[]) {
 
     void (*get_channel_send)(char*, char*);
     void (*get_channel_msg)(char*, char*);
+    void (*get_channel_status)(unsigned long long, FILE*);
 
     if (strcmp(exchange, "bitfinex") == 0) {
         exchange = "bitfinex-private";
 
         get_channel_send = send_bitfinex;
         get_channel_msg = msg_bitfinex;
+        // get_channel_status = status_bitfinex;
     } else if (strcmp(exchange, "bitflyer") == 0) {
         get_channel_send = send_bitflyer;
         get_channel_msg = msg_bitflyer;
+        // get_channel_status = status_bitflyer;
     } else if (strcmp(exchange, "bitmex") == 0) {
         get_channel_send = send_bitmex;
         get_channel_msg = msg_bitmex;
+        get_channel_status = status_bitmex;
     } else {
         std::cerr << "unknown exchange" << std::endl;
         exit(1);
     }
 
     // buffer for storing an datetime
-    char* timestamp = (char*) malloc(sizeof(char)*N_TIMESTAMP);
+    char* timestamp = new char[N_TIMESTAMP];
     // buffer for storing an line
-    char* buf = (char*) malloc(sizeof(char)*N_BUFFER);
+    char* buf = new char[N_BUFFER];
+    // buffer for storing an status
+    char* status = new char[N_BUFFER];
     // char array to store command to write to
-    char* command = (char*) malloc(sizeof(char)*N_COMMAND);
+    char* command = new char[N_COMMAND];
 
     // timestamp
     unsigned long long ts;
@@ -82,7 +88,7 @@ int main(int argc, const char *argv[]) {
 
     fprintf(out, "start\t%llu\t%s\n", ts, buf);
 
-    char *channel = (char *) malloc(sizeof(char)*N_CHANNEL);
+    char *channel = new char[N_CHANNEL];
     
     while (std::cin.getline(buf, N_BUFFER, ',')) {
         // read timestamp
@@ -99,6 +105,12 @@ int main(int argc, const char *argv[]) {
             out = popen(command, "w");
 
             mins = CALC_MIN(ts);
+
+            // for each 10 minutes, prints out board snapshot
+            if (mins % 10 == 0) {
+                // output status line
+                get_channel_status(ts, out);
+            }
         }
 
         if (buf[0] == 'm' && buf[1] == 's' && buf[2] == 'g') {
@@ -137,8 +149,11 @@ int main(int argc, const char *argv[]) {
     }
 
     pclose(out);
-    free(buf);
-    free(command);
+    delete buf;
+    delete command;
+    delete status;
+    delete timestamp;
+    delete channel;
 
     return 0;
 }
