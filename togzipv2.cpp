@@ -36,11 +36,11 @@ int main(int argc, const char *argv[]) {
 
         get_channel_send = send_bitfinex;
         get_channel_msg = msg_bitfinex;
-        // get_channel_status = status_bitfinex;
+        get_channel_status = status_bitfinex;
     } else if (strcmp(exchange, "bitflyer") == 0) {
         get_channel_send = send_bitflyer;
         get_channel_msg = msg_bitflyer;
-        // get_channel_status = status_bitflyer;
+        get_channel_status = status_bitflyer;
     } else if (strcmp(exchange, "bitmex") == 0) {
         get_channel_send = send_bitmex;
         get_channel_msg = msg_bitmex;

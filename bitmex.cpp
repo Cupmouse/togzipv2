@@ -6,7 +6,7 @@
 #include "common.h"
 #include "bitmex.h"
 
-#define SIDE_INDEX(side) (strcmp(side, "Buy") == 0)
+#define BITMEX_SIDE_INDEX(side) (strcmp(side, "Buy") == 0)
 
 using namespace rapidjson;
 
@@ -16,12 +16,12 @@ void send_bitmex(char *message, char *channel) {
     exit(1);
 }
 
-struct BookKey {
+struct BitmexBookKey {
     char *symbol;
     int side;
     uint64_t id;
 
-    bool operator < (const BookKey& another) const {
+    bool operator < (const BitmexBookKey& another) const {
         int str = strcmp(symbol, another.symbol);
         if (str == 0) {
             if (side == another.side) {
@@ -35,15 +35,15 @@ struct BookKey {
     }
 };
 
-struct BookElement {
+struct BitmexBookElement {
     double price;
     uint64_t size;
 };
 
 // map<channel, map<bookelement_id, bookelement>>
-std::map<BookKey, BookElement> orderbooks;
+std::map<BitmexBookKey, BitmexBookElement> orderbooks;
 
-void record_orderbook(Document &doc) {
+void bitmex_record_orderbook(Document &doc) {
     const char *action = doc["action"].GetString();
     const auto data = doc["data"].GetArray();
 
@@ -53,18 +53,18 @@ void record_orderbook(Document &doc) {
             strncpy(symbol, elem["symbol"].GetString(), N_PAIR);
             const uint64_t id = elem["id"].GetUint64();
             const char* side = elem["side"].GetString();
-            BookKey key = {symbol, SIDE_INDEX(side), id};
+            BitmexBookKey key = {symbol, BITMEX_SIDE_INDEX(side), id};
 
             const double price = elem["price"].GetDouble();
             const uint64_t size = elem["size"].GetUint64();
-            BookElement bookelem = { price, size };
+            BitmexBookElement bookelem = { price, size };
 
             if (orderbooks.find(key) == orderbooks.end()) {
                 // this symbol is not included in the map
                 orderbooks[key] = bookelem;
             } else {
                 orderbooks[key] = bookelem;
-                delete symbol;
+                delete [] symbol;
             }
         }
     } else if (strcmp(action, "update") == 0) {
@@ -75,11 +75,11 @@ void record_orderbook(Document &doc) {
             const char *side = elem["side"].GetString();
             const uint64_t id = elem["id"].GetUint64();
             const uint64_t size = elem["size"].GetUint64();
-            BookKey key = { symbol, SIDE_INDEX(side), id };
-            BookElement bookelem = orderbooks[key];
+            BitmexBookKey key = { symbol, BITMEX_SIDE_INDEX(side), id };
+            BitmexBookElement bookelem = orderbooks[key];
             bookelem.size = size;
             orderbooks[key] = bookelem;
-            delete symbol;
+            delete [] symbol;
         }
     } else if (strcmp(action, "delete") == 0) {
         for (auto& elem : data) {
@@ -88,13 +88,13 @@ void record_orderbook(Document &doc) {
             strncpy(symbol, elem["symbol"].GetString(), N_PAIR);
             const uint64_t id = elem["id"].GetUint64();
             const char *side = elem["side"].GetString();
-            BookKey key = { symbol, SIDE_INDEX(side), id };
+            BitmexBookKey key = { symbol, BITMEX_SIDE_INDEX(side), id };
             // erase it from map
             if (orderbooks.erase(key) != 1) {
                 std::cerr << "erase failed" << std::endl;
                 exit(1);
             }
-            delete key.symbol;
+            delete [] key.symbol;
         }
     } else {
         std::cerr << "unknown action type: " << action << std::endl;
@@ -113,7 +113,7 @@ void msg_bitmex(char *message, char *channel) {
 
         if (strncmp(channel, "orderBookL2", N_CHANNEL) == 0) {
             // if this is orderBookL2 topic, then we need to preserve orderbooks
-            record_orderbook(doc);
+            bitmex_record_orderbook(doc);
         }
 
     } else if (doc.HasMember("info")) {

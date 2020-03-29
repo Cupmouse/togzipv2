@@ -8,4 +8,12 @@
 #define N_PAIR 100
 #define CALC_MIN(nanosec) (nanosec/1000000000/60)
 
+struct charstringcmparator {
+     bool operator()(char const *a, char const *b) const {
+        return strcmp(a, b) < 0;
+    }
+};
+
+bool startswith(const char *str, const char *prefix);
+
 #endif

@@ -14,12 +14,6 @@ using namespace rapidjson;
 
 std::map<unsigned int, char*> bitflyer_idvch;
 
-struct charstringcmparator {
-     bool operator()(char const *a, char const *b) const {
-        return strcmp(a, b) < 0;
-    }
-};
-
 struct BitflyerBookKey {
     int side;
     double price;
@@ -29,8 +23,12 @@ struct BitflyerBookKey {
             return side < a.side;
         } else {
             // in bid, higher is the better
-            // in ask, lower is the better, but reversed in map, so higher is top
-            return price > a.price;
+            // in ask, lower is the better
+            if (side == BITFLYER_SIDE_INDEX("bids")) {
+                return price > a.price;
+            } else {
+                return price < a.price;
+            }
         }
     }
 };
@@ -54,17 +52,6 @@ void bitflyer_record_orderbook(char *symbol, GenericObject<false, rapidjson::Val
             memOrderbook.erase(key);
         } else {
             memOrderbook[key] = size;
-            // if this sell order is not greater than some of orders in bids
-            // remove those, again because incomplete orderbook from server
-            while (memOrderbook.begin() != memOrderbook.end()) {
-                auto bidOrder = *memOrderbook.begin();
-                if (bidOrder.first.side != BITFLYER_SIDE_INDEX("bids")) break;
-                if (bidOrder.first.price >= price) {
-                    memOrderbook.erase(bidOrder.first);
-                    std::cerr << "weird thing is happening!! removed" << std::endl;
-                } else
-                    break;
-            }
         }
     }
     for (auto& bid : message["bids"].GetArray()) {
@@ -94,10 +81,6 @@ void send_bitflyer(char *message, char *channel) {
     strncpy(channel, params_channel, N_CHANNEL);
 }
 
-bool startswith(const char *str, const char *prefix) {
-    return strlen(str) >= strlen(prefix) && strncmp(str, prefix, strlen(prefix)) == 0;
-}
-
 void msg_bitflyer(char *message, char *channel) {
     Document doc;
 
@@ -113,19 +96,20 @@ void msg_bitflyer(char *message, char *channel) {
                 char *symbol = new char[N_PAIR];
                 strncpy(symbol, channel+strlen("lightning_board_snapshot_"), N_PAIR);
                 if (bitflyer_orderbooks.find(symbol) == bitflyer_orderbooks.end()) {
-                    // this is the first time this symbol gets snapshot
-                    auto orderbook = new std::map<BitflyerBookKey, double>;
-                    bitflyer_orderbooks[symbol] = orderbook;
+                    bitflyer_orderbooks[symbol] = new std::map<BitflyerBookKey, double>;
                     bitflyer_record_orderbook(symbol, doc["params"]["message"].GetObject());
-                    // don't delete symbol
+                    // this is the first time this symbol gets a snapshot
+                    // don't delete symbol if this is the first time
                 } else {
+                    delete bitflyer_orderbooks[symbol];
+                    bitflyer_orderbooks[symbol] = new std::map<BitflyerBookKey, double>;
                     bitflyer_record_orderbook(symbol, doc["params"]["message"].GetObject());
                     delete [] symbol;
                 }
             } else if (startswith(channel, "lightning_board_")) {
                 char *symbol = new char[N_PAIR];
                 strncpy(symbol, channel+strlen("lightning_board_"), N_PAIR);
-                // we somehow can get board change before getting snapshot
+                // we somehow can get board change before getting a snapshot
                 if (bitflyer_orderbooks.find(symbol) != bitflyer_orderbooks.end()) {
                     bitflyer_record_orderbook(symbol, doc["params"]["message"].GetObject());
                 }
@@ -151,23 +135,10 @@ void status_bitflyer(unsigned long long ts, FILE *out) {
         Value asks(kArrayType);
         Value bids(kArrayType);
         
-        if (orderbook.begin() != orderbook.end()) {
-            // begin is best bid, rbegin is best ask
-            if ((*orderbook.begin()).first.price <= (*orderbook.rbegin()).first.price) {
-                std::cerr << "weird thing is happening" << std::endl;
-            }
-        } else {
-                std::cerr << "zero" << std::endl;
-        }
-
         // for all bid order
-        for (auto keyBidOrder = orderbook.begin();
-            keyBidOrder != orderbook.end();
-            keyBidOrder++)
-        {
-            auto key = (*keyBidOrder).first;
-            auto size = ((*keyBidOrder)).second;
-            if (key.side != BITFLYER_SIDE_INDEX("bids")) break;
+        for (auto keyOrder : orderbook) {
+            auto key = keyOrder.first;
+            auto size = keyOrder.second;
             
             Value order(kObjectType), valPrice(kNumberType), valSize(kNumberType);
 
@@ -176,26 +147,13 @@ void status_bitflyer(unsigned long long ts, FILE *out) {
             valSize.SetDouble(size);
             order.AddMember("size", valSize, allocator);
 
-            bids.PushBack(order, allocator);
+            if (key.side == BITFLYER_SIDE_INDEX("bids")) {
+                bids.PushBack(order, allocator);
+            } else {
+                asks.PushBack(order, allocator);
+            }
         }
         doc.AddMember("bids", bids, allocator);
-        for (auto keyAskOrder = orderbook.rbegin();
-            keyAskOrder != orderbook.rend();
-            keyAskOrder++)
-        {
-            auto key = (*keyAskOrder).first;
-            auto size = ((*keyAskOrder)).second;
-            if (key.side != BITFLYER_SIDE_INDEX("asks")) break;
-
-            Value order(kObjectType), valPrice(kNumberType), valSize(kNumberType);
-
-            valPrice.SetDouble(key.price);
-            order.AddMember("price", valPrice, allocator);
-            valSize.SetDouble(size);
-            order.AddMember("size", valSize, allocator);
-
-            asks.PushBack(order, allocator);
-        }
         doc.AddMember("asks", asks, allocator);
 
         StringBuffer sb;
