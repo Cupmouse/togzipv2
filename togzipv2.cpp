@@ -32,8 +32,6 @@ int main(int argc, const char *argv[]) {
     void (*get_channel_status)(unsigned long long, FILE*);
 
     if (strcmp(exchange, "bitfinex") == 0) {
-        exchange = "bitfinex-private";
-
         get_channel_send = send_bitfinex;
         get_channel_msg = msg_bitfinex;
         get_channel_status = status_bitfinex;

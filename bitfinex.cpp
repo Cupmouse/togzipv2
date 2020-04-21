@@ -1,5 +1,6 @@
 #include <iostream>
 #include <map>
+#include <set>
 #include <string>
 #include <rapidjson/document.h>
 #include <rapidjson/writer.h>
@@ -27,11 +28,29 @@ inline void bitfinex_record_orderbook_single(unsigned int chanId, GenericArray<f
     auto& orderbook = *bitfinex_orderbooks[chanId];
     if (count == 0) {
         // remove
-        if (orderbook.erase(price) != 1) {
-            std::cerr << "erase failed" << std::endl;
-            exit(1);
-        }
+        orderbook.erase(price);
     } else {
+        std::set<double> dueToRemove;
+        if (amount < 0) {
+            // this is the sell order
+            // buy orders with price equal or more than the price of sell order
+            // must be deleted.
+            for (auto i = orderbook.begin(); i != orderbook.end(); i++) {
+                if (i->first >= price && i->second.amount >= 0) {
+                    dueToRemove.insert(i->first);
+                }
+            }
+        } else {
+            for (auto i = orderbook.begin(); i != orderbook.cend(); i++) {
+                if (i->first <= price && i->second.amount <= 0) {
+                    dueToRemove.insert(i->first);
+                }
+            }
+        }
+        for (auto i = dueToRemove.begin(); i != dueToRemove.end(); i++) {
+            orderbook.erase(*i);
+        }
+        
         orderbook[price] = { count: count, amount: amount };
     }
 }
@@ -40,14 +59,18 @@ inline void bitfinex_record_orderbook(unsigned int chanId, GenericArray<false, r
     if (bitfinex_orderbooks.find(chanId) == bitfinex_orderbooks.end()) {
         bitfinex_orderbooks[chanId] = new std::map<double, BitfinexBookElement>;
     }
+    if (orders.Size() == 0) {
+        // snapshot, but no orders... probably because maintenance
+        return;
+    }
 
-    if (!orders[0].IsArray()) {
-        // just one order will be flattened
-        bitfinex_record_orderbook_single(chanId, orders);
-    } else {
+    if (orders[0].IsArray()) {
         for (auto& order : orders) {
             bitfinex_record_orderbook_single(chanId, order.GetArray());
         }
+    } else {
+        // just one order will be flattened
+        bitfinex_record_orderbook_single(chanId, orders);
     }
 }
 
@@ -120,6 +143,8 @@ void msg_bitfinex(char *message, char *channel) {
             strncpy(channel, val, N_CHANNEL);
         } else if (strcmp(doc["event"].GetString(), "info") == 0) {
             strcpy(channel, "info");
+        } else if (strcmp(doc["event"].GetString(), "error") == 0) {
+            snprintf(channel, N_CHANNEL, "%s_%s", doc["channel"].GetString(), doc["symbol"].GetString());
         } else {
             std::cerr << "unknown channel" << std::endl;
             exit(1);

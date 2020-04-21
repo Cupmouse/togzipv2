@@ -2,6 +2,7 @@
 #include <rapidjson/document.h>
 #include <rapidjson/writer.h>
 #include <map>
+#include <set>
 
 #include "common.h"
 #include "bitmex.h"
@@ -43,6 +44,8 @@ struct BitmexBookElement {
 // map<channel, map<bookelement_id, bookelement>>
 std::map<BitmexBookKey, BitmexBookElement> orderbooks;
 
+std::map<char*, Document*, charstringcmparator> instruments;
+
 void bitmex_record_orderbook(Document &doc) {
     const char *action = doc["action"].GetString();
     const auto data = doc["data"].GetArray();
@@ -53,14 +56,13 @@ void bitmex_record_orderbook(Document &doc) {
             strncpy(symbol, elem["symbol"].GetString(), N_PAIR);
             const uint64_t id = elem["id"].GetUint64();
             const char* side = elem["side"].GetString();
-            BitmexBookKey key = {symbol, BITMEX_SIDE_INDEX(side), id};
+            BitmexBookKey key = {symbol: symbol, side: BITMEX_SIDE_INDEX(side), id: id};
 
             const double price = elem["price"].GetDouble();
             const uint64_t size = elem["size"].GetUint64();
-            BitmexBookElement bookelem = { price, size };
+            BitmexBookElement bookelem = { price: price, size: size };
 
             if (orderbooks.find(key) == orderbooks.end()) {
-                // this symbol is not included in the map
                 orderbooks[key] = bookelem;
             } else {
                 orderbooks[key] = bookelem;
@@ -75,7 +77,7 @@ void bitmex_record_orderbook(Document &doc) {
             const char *side = elem["side"].GetString();
             const uint64_t id = elem["id"].GetUint64();
             const uint64_t size = elem["size"].GetUint64();
-            BitmexBookKey key = { symbol, BITMEX_SIDE_INDEX(side), id };
+            BitmexBookKey key = { symbol: symbol, side: BITMEX_SIDE_INDEX(side), id: id };
             BitmexBookElement bookelem = orderbooks[key];
             bookelem.size = size;
             orderbooks[key] = bookelem;
@@ -88,13 +90,40 @@ void bitmex_record_orderbook(Document &doc) {
             strncpy(symbol, elem["symbol"].GetString(), N_PAIR);
             const uint64_t id = elem["id"].GetUint64();
             const char *side = elem["side"].GetString();
-            BitmexBookKey key = { symbol, BITMEX_SIDE_INDEX(side), id };
+            BitmexBookKey key = { symbol: symbol, side: BITMEX_SIDE_INDEX(side), id: id };
             // erase it from map
-            if (orderbooks.erase(key) != 1) {
-                std::cerr << "erase failed" << std::endl;
-                exit(1);
+            orderbooks.erase(key);
+            delete [] symbol;
+        }
+    } else {
+        std::cerr << "unknown action type: " << action << std::endl;
+        exit(1);
+    }
+}
+
+
+void bitmex_instrument(Document &doc) {
+    const char *action = doc["action"].GetString();
+    const auto data = doc["data"].GetArray();
+
+    if (strcmp(action, "partial") == 0 || strcmp(action, "insert") == 0) {
+        for (auto &elem : data) {
+            auto copied = new Document;
+            auto& alloc = copied->GetAllocator();
+            copied->CopyFrom(elem, alloc);
+            char *symbol = new char[N_CHANNEL];
+            strncpy(symbol, elem["symbol"].GetString(), N_CHANNEL);
+            instruments[symbol] = copied;
+        }
+    } else if (strcmp(action, "update") == 0) {
+        for (auto& elem : data) {
+            char *symbol = new char[N_CHANNEL];
+            strncpy(symbol, elem["symbol"].GetString(), N_CHANNEL);
+            Document *doc = instruments[symbol];
+            for (auto member = elem.MemberBegin(); member != elem.MemberEnd(); member++) {
+                (*doc)[member->name.GetString()].CopyFrom(member->value, doc->GetAllocator());
             }
-            delete [] key.symbol;
+            delete [] symbol;
         }
     } else {
         std::cerr << "unknown action type: " << action << std::endl;
@@ -114,6 +143,8 @@ void msg_bitmex(char *message, char *channel) {
         if (strncmp(channel, "orderBookL2", N_CHANNEL) == 0) {
             // if this is orderBookL2 topic, then we need to preserve orderbooks
             bitmex_record_orderbook(doc);
+        } else if (strncmp(channel, "instrument", N_CHANNEL) == 0) {
+            bitmex_instrument(doc);
         }
 
     } else if (doc.HasMember("info")) {
@@ -131,8 +162,7 @@ void msg_bitmex(char *message, char *channel) {
     }
 }
 
-// parse orderbook status into a line
-void status_bitmex(unsigned long long ts, FILE *out) {
+void bitmex_snapshot_orderbook(unsigned long long ts, FILE *out) {
     Document doc(kArrayType);
     auto& alloc = doc.GetAllocator();
 
@@ -160,4 +190,30 @@ void status_bitmex(unsigned long long ts, FILE *out) {
     fprintf(out, "status\t%llu\torderBookL2\t", ts);
     fputs(sb.GetString(), out);
     fputc('\n', out);
+}
+
+void bitmex_snapshot_instrument(unsigned long long ts, FILE *out) {
+    Document doc(kArrayType);
+    auto& alloc = doc.GetAllocator();
+
+    for (auto& keyValue : instruments) {
+        Value val(kObjectType);
+        val.CopyFrom(*keyValue.second, alloc);
+        doc.PushBack(val, alloc);
+    }
+
+    // write it to char array (string)
+    StringBuffer sb;
+    Writer<StringBuffer> writer(sb);
+    doc.Accept(writer);
+
+    fprintf(out, "status\t%llu\tinstrument\t", ts);
+    fputs(sb.GetString(), out);
+    fputc('\n', out);
+}
+
+// parse orderbook status into a line
+void status_bitmex(unsigned long long ts, FILE *out) {
+    bitmex_snapshot_orderbook(ts, out);
+    bitmex_snapshot_instrument(ts, out);
 }
