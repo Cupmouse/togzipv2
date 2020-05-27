@@ -2,6 +2,7 @@
 #include <map>
 #include <string>
 #include <list>
+#include <set>
 #include <rapidjson/document.h>
 #include <rapidjson/writer.h>
 
@@ -12,6 +13,7 @@
 
 using namespace rapidjson;
 
+std::set<std::string> bitflyer_subscribed;
 std::map<unsigned int, char*> bitflyer_idvch;
 
 struct BitflyerBookKey {
@@ -33,10 +35,10 @@ struct BitflyerBookKey {
     }
 };
 
-std::map<char*, std::map<BitflyerBookKey, double>*, charstringcmparator> bitflyer_orderbooks;
+std::map<std::string, std::map<BitflyerBookKey, double>> bitflyer_orderbooks;
 
-void bitflyer_record_orderbook(char *symbol, GenericObject<false, rapidjson::Value> message) {
-    auto& memOrderbook = *bitflyer_orderbooks[symbol];
+inline void bitflyer_record_orderbook(std::string symbol, GenericObject<false, rapidjson::Value> message) {
+    auto& memOrderbook = bitflyer_orderbooks[symbol];
     for (auto& ask : message["asks"].GetArray()) {
         double price = ask["price"].GetDouble();
         if (price == 0) {
@@ -93,27 +95,21 @@ void msg_bitflyer(char *message, char *channel) {
             
             // orderbook things
             if (startswith(channel, "lightning_board_snapshot_")) {
-                char *symbol = new char[N_PAIR];
-                strncpy(symbol, channel+strlen("lightning_board_snapshot_"), N_PAIR);
+                std::string symbol(channel+strlen("lightning_board_snapshot_"));
                 if (bitflyer_orderbooks.find(symbol) == bitflyer_orderbooks.end()) {
-                    bitflyer_orderbooks[symbol] = new std::map<BitflyerBookKey, double>;
                     bitflyer_record_orderbook(symbol, doc["params"]["message"].GetObject());
                     // this is the first time this symbol gets a snapshot
                     // don't delete symbol if this is the first time
                 } else {
-                    delete bitflyer_orderbooks[symbol];
-                    bitflyer_orderbooks[symbol] = new std::map<BitflyerBookKey, double>;
+                    bitflyer_orderbooks[symbol].clear();
                     bitflyer_record_orderbook(symbol, doc["params"]["message"].GetObject());
-                    delete [] symbol;
                 }
             } else if (startswith(channel, "lightning_board_")) {
-                char *symbol = new char[N_PAIR];
-                strncpy(symbol, channel+strlen("lightning_board_"), N_PAIR);
+                std::string symbol(channel+strlen("lightning_board_"));
                 // we somehow can get board change before getting a snapshot
                 if (bitflyer_orderbooks.find(symbol) != bitflyer_orderbooks.end()) {
                     bitflyer_record_orderbook(symbol, doc["params"]["message"].GetObject());
                 }
-                delete [] symbol;
             }
         } else {
             std::cerr << "unknown channel" << std::endl;
@@ -122,13 +118,27 @@ void msg_bitflyer(char *message, char *channel) {
     } else {
         // response to subscribe
         strncpy(channel, bitflyer_idvch[doc["id"].GetUint()], N_CHANNEL);
+        bitflyer_subscribed.insert(channel);
     }
 }
 
 void status_bitflyer(unsigned long long ts, FILE *out) {
-    for (auto symbolOrderbook : bitflyer_orderbooks) {
-        char *symbol = symbolOrderbook.first;
-        auto& orderbook = *symbolOrderbook.second;
+    Document subscribed(kArrayType);
+    for (auto&& channel : bitflyer_subscribed) {
+        Value valChannel(kStringType);
+        valChannel.SetString(channel.c_str(), subscribed.GetAllocator());
+        subscribed.PushBack(valChannel, subscribed.GetAllocator());
+    }
+    StringBuffer subSb;
+    Writer<StringBuffer> subsWriter(subSb);
+    subscribed.Accept(subsWriter);
+    fprintf(out, "status\t%llu\t%s\t", ts, CHANNEL_SUBSCRIBED);
+    fputs(subSb.GetString(), out);
+    fputc('\n', out);
+
+    for (auto&& symbolOrderbook : bitflyer_orderbooks) {
+        std::string symbol = symbolOrderbook.first;
+        auto& orderbook = symbolOrderbook.second;
 
         Document doc(kObjectType);
         auto& allocator = doc.GetAllocator();
@@ -136,7 +146,7 @@ void status_bitflyer(unsigned long long ts, FILE *out) {
         Value bids(kArrayType);
         
         // for all bid order
-        for (auto keyOrder : orderbook) {
+        for (auto&& keyOrder : orderbook) {
             auto key = keyOrder.first;
             auto size = keyOrder.second;
             
@@ -160,7 +170,7 @@ void status_bitflyer(unsigned long long ts, FILE *out) {
         Writer<StringBuffer> writer(sb);
         doc.Accept(writer);
 
-        fprintf(out, "status\t%llu\tlightning_board_snapshot_%s\t", ts, symbol);
+        fprintf(out, "status\t%llu\tlightning_board_snapshot_%s\t", ts, symbol.c_str());
         fputs(sb.GetString(), out);
         fputc('\n', out);
     }

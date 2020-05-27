@@ -7,6 +7,7 @@
 #define N_CHANNEL 1000
 #define N_PAIR 100
 #define CALC_MIN(nanosec) (nanosec/1000000000/60)
+#define CHANNEL_SUBSCRIBED "!subscribed"
 
 struct charstringcmparator {
      bool operator()(char const *a, char const *b) const {

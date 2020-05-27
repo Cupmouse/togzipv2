@@ -17,7 +17,8 @@ struct BitfinexBookElement {
     double amount;
 };
 
-std::map<unsigned int, std::map<double, BitfinexBookElement>*> bitfinex_orderbooks;
+std::map<unsigned int, std::map<double, BitfinexBookElement>> bitfinex_orderbooks;
+std::set<std::string> bitfinex_subscribed;
 
 inline void bitfinex_record_orderbook_single(unsigned int chanId, GenericArray<false, rapidjson::Value> order) {
     double price = order[0].GetDouble();
@@ -25,7 +26,7 @@ inline void bitfinex_record_orderbook_single(unsigned int chanId, GenericArray<f
     // negative if ask
     double amount = order[2].GetDouble();
 
-    auto& orderbook = *bitfinex_orderbooks[chanId];
+    auto& orderbook = bitfinex_orderbooks[chanId];
     if (count == 0) {
         // remove
         orderbook.erase(price);
@@ -41,7 +42,7 @@ inline void bitfinex_record_orderbook_single(unsigned int chanId, GenericArray<f
                 }
             }
         } else {
-            for (auto i = orderbook.begin(); i != orderbook.cend(); i++) {
+            for (auto i = orderbook.begin(); i != orderbook.end(); i++) {
                 if (i->first <= price && i->second.amount <= 0) {
                     dueToRemove.insert(i->first);
                 }
@@ -56,9 +57,6 @@ inline void bitfinex_record_orderbook_single(unsigned int chanId, GenericArray<f
 }
 
 inline void bitfinex_record_orderbook(unsigned int chanId, GenericArray<false, rapidjson::Value> orders) {
-    if (bitfinex_orderbooks.find(chanId) == bitfinex_orderbooks.end()) {
-        bitfinex_orderbooks[chanId] = new std::map<double, BitfinexBookElement>;
-    }
     if (orders.Size() == 0) {
         // snapshot, but no orders... probably because maintenance
         return;
@@ -75,9 +73,22 @@ inline void bitfinex_record_orderbook(unsigned int chanId, GenericArray<false, r
 }
 
 void status_bitfinex(unsigned long long ts, FILE *out) {
+    Document subscribed(kArrayType);
+    for (auto&& channel : bitfinex_subscribed) {
+        Value valChannel(kStringType);
+        valChannel.SetString(channel.c_str(), subscribed.GetAllocator());
+        subscribed.PushBack(valChannel, subscribed.GetAllocator());
+    }
+    StringBuffer subSb;
+    Writer<StringBuffer> subsWriter(subSb);
+    subscribed.Accept(subsWriter);
+    fprintf(out, "status\t%llu\t%s\t", ts, CHANNEL_SUBSCRIBED);
+    fputs(subSb.GetString(), out);
+    fputc('\n', out);
+
     for (auto chanIdOrderbook : bitfinex_orderbooks) {
         unsigned int chanId = chanIdOrderbook.first;
-        auto& orderbook = *chanIdOrderbook.second;
+        auto& orderbook = chanIdOrderbook.second;
         char *channel = bitfinex_idvch[chanId];
 
         Document doc(kArrayType);
