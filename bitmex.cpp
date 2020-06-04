@@ -246,7 +246,7 @@ inline void bitmex_snapshot_orderbook(unsigned long long ts, FILE *out) {
     Writer<StringBuffer> writer(sb);
     doc.Accept(writer);
 
-    fprintf(out, "status\t%llu\torderBookL2\t", ts);
+    fprintf(out, "state\t%llu\torderBookL2\t", ts);
     fputs(sb.GetString(), out);
     fputc('\n', out);
 }
@@ -266,7 +266,7 @@ inline void bitmex_snapshot_instrument(unsigned long long ts, FILE *out) {
     Writer<StringBuffer> writer(sb);
     doc.Accept(writer);
 
-    fprintf(out, "status\t%llu\tinstrument\t", ts);
+    fprintf(out, "state\t%llu\tinstrument\t", ts);
     fputs(sb.GetString(), out);
     fputc('\n', out);
 }
@@ -282,7 +282,7 @@ void status_bitmex(unsigned long long ts, FILE *out) {
     StringBuffer subSb;
     Writer<StringBuffer> subsWriter(subSb);
     subscribed.Accept(subsWriter);
-    fprintf(out, "status\t%llu\t%s\t", ts, CHANNEL_SUBSCRIBED);
+    fprintf(out, "state\t%llu\t%s\t", ts, CHANNEL_SUBSCRIBED);
     fputs(subSb.GetString(), out);
     fputc('\n', out);
 

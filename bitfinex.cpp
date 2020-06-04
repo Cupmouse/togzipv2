@@ -82,7 +82,7 @@ void status_bitfinex(unsigned long long ts, FILE *out) {
     StringBuffer subSb;
     Writer<StringBuffer> subsWriter(subSb);
     subscribed.Accept(subsWriter);
-    fprintf(out, "status\t%llu\t%s\t", ts, CHANNEL_SUBSCRIBED);
+    fprintf(out, "state\t%llu\t%s\t", ts, CHANNEL_SUBSCRIBED);
     fputs(subSb.GetString(), out);
     fputc('\n', out);
 
@@ -118,7 +118,7 @@ void status_bitfinex(unsigned long long ts, FILE *out) {
         Writer<StringBuffer> writer(sb);
         doc.Accept(writer);
 
-        fprintf(out, "status\t%llu\t%s\t", ts, channel);
+        fprintf(out, "state\t%llu\t%s\t", ts, channel);
         fputs(sb.GetString(), out);
         fputc('\n', out);
     }
@@ -150,8 +150,10 @@ void msg_bitfinex(char *message, char *channel) {
 
             // set channel name for id
             bitfinex_idvch[chanId] = val;
-            
+
             strncpy(channel, val, N_CHANNEL);
+            
+            bitfinex_subscribed.insert(channel);
         } else if (strcmp(doc["event"].GetString(), "info") == 0) {
             strcpy(channel, "info");
         } else if (strcmp(doc["event"].GetString(), "error") == 0) {
