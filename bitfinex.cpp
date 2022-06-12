@@ -18,7 +18,6 @@ struct BitfinexBookElement {
 };
 
 std::map<unsigned int, std::map<double, BitfinexBookElement>> bitfinex_orderbooks;
-std::set<std::string> bitfinex_subscribed;
 
 inline void bitfinex_record_orderbook_single(unsigned int chanId, GenericArray<false, rapidjson::Value> order) {
     double price = order[0].GetDouble();
@@ -73,11 +72,11 @@ inline void bitfinex_record_orderbook(unsigned int chanId, GenericArray<false, r
 }
 
 void status_bitfinex(unsigned long long ts, FILE *out) {
-    Document subscribed(kArrayType);
-    for (auto&& channel : bitfinex_subscribed) {
+    Document subscribed(kObjectType);
+    for (auto&& channel : bitfinex_idvch) {
         Value valChannel(kStringType);
-        valChannel.SetString(channel.c_str(), subscribed.GetAllocator());
-        subscribed.PushBack(valChannel, subscribed.GetAllocator());
+        valChannel.SetString(channel.second, strlen(channel.second));
+        subscribed.AddMember(valChannel, channel.first, subscribed.GetAllocator());
     }
     StringBuffer subSb;
     Writer<StringBuffer> subsWriter(subSb);
@@ -152,8 +151,6 @@ void msg_bitfinex(char *message, char *channel) {
             bitfinex_idvch[chanId] = val;
 
             strncpy(channel, val, N_CHANNEL);
-            
-            bitfinex_subscribed.insert(channel);
         } else if (strcmp(doc["event"].GetString(), "info") == 0) {
             strcpy(channel, "info");
         } else if (strcmp(doc["event"].GetString(), "error") == 0) {

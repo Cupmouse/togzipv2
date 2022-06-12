@@ -203,7 +203,7 @@ inline void bitmex_snapshot_orderbook(unsigned long long ts, FILE *out) {
             Value symbolVal(symbol.c_str(), alloc);
             bookelem.AddMember("symbol", symbolVal, alloc);
             bookelem.AddMember("id", order.id, alloc);
-            bookelem.AddMember("side", "Buy", alloc);
+            bookelem.AddMember("side", "Sell", alloc);
             bookelem.AddMember("price", price, alloc);
             bookelem.AddMember("size", order.size, alloc);
             doc.PushBack(bookelem, alloc);
